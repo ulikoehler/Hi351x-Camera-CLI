@@ -1,90 +1,252 @@
-# hi3510-camctl
+# hi3510-camera-cli
 
-CLI tool to scan, dump, apply and edit the configuration of hf*/hi3510-family
-IP cameras ("IPCamera", SoC **HiSilicon Hi3516CV610**, e.g.
-`deyType=H2S02P100000`) over their HTTP JSON API.
+Command-line tool to discover, inspect, dump, clone and edit the
+configuration of **hi3510-family IP cameras** (HiSilicon **Hi3516CV610** and
+related SoCs, ONVIF stack `hfonvif`, firmware `22.010.x_MAIN_V4x`) over their
+built-in HTTP JSON API — no SDK, no vendor software, Python standard library
+only.
 
-See [INTERFACES.md](INTERFACES.md) for the full protocol documentation
-(HTTP `/action/*` API, ONVIF :8080, RTSP :554, legacy CGI, port 8000).
+Built for fleets: every command accepts a single IP **or an entire CIDR
+subnet**, probes devices in parallel, skips incompatible hardware, and only
+writes settings that actually differ.
 
-No dependencies — Python 3.7+ standard library only.
+> Typical devices: unbranded/OEM "IPCamera" units (XMEye/CamHi-style boards)
+> exposing the `/action/*` JSON API. See [INTERFACES.md](INTERFACES.md) for the
+> complete protocol documentation.
 
-## Quick start
+## Features
+
+- **Network discovery** — scans subnets in parallel, confirms devices via
+  `hiLogin`, reports MAC + device ID
+- **Full config dump** — 40+ config sections to a JSON file per device
+- **Config apply/clone** — replicate one camera's config across a fleet
+- **Property-level access** — read/write individual settings on one device or
+  many
+- **Idempotent writes** — reads live state first, sends only fields that
+  differ; devices already matching report `unchanged` and are not touched
+- **Safety guards** — secrets stripped on apply, `--skip-network` prevents
+  self-inflicted IP changes, `deyType` mismatch blocks cross-model applies,
+  destructive endpoints (reset/upgrade/format) are never called
+
+## Requirements
+
+- Python ≥ 3.7 — **zero dependencies** (stdlib only)
+- Network reachability to the cameras on TCP port 80
+- Admin credentials (default on these devices: `admin` / `123456`)
+
+## Install
 
 ```bash
-# Find compatible cameras on the network (probes hiLogin)
+git clone https://github.com/<you>/hi3510-camera-cli.git
+cd hi3510-camera-cli
+python3 camera_config.py --help
+```
+
+## Authentication
+
+All commands take `--password` / `-p` (default `123456`). The tool sends the
+**MD5 of the password** to `/action/hiLogin`, exactly as the device's own web
+UI does. The username is fixed to `admin` on this firmware — the API does not
+send a username at all.
+
+## Command reference
+
+### `scan` — find compatible devices
+
+```bash
 python3 camera_config.py scan 10.91.1.0/24 -p 123456
+```
 
-# List IPs, MAC addresses and device IDs
-python3 camera_config.py mac 10.91.1.0/24
+Probes every host in the target (single IP, hostname or CIDR), performs
+`hiLogin`, and prints each responding device's ID and board type
+(`deyType`). Non-camera hosts and non-matching firmware are silently skipped.
 
-# Dump full config of one device or the whole subnet -> dumps/<ip>.json
+### `mac` — list MAC addresses and device IDs
+
+```bash
+python3 camera_config.py mac 10.91.1.192/27
+```
+
+```
+10.91.1.200      bc-07-18-03-31-ea  H0100011A120100011786
+10.91.1.201      bc-07-18-03-31-ed  H0100011A120100011789
+...
+```
+
+### `list` — inspect endpoints and properties
+
+```bash
+# All known get/set endpoint names
+python3 camera_config.py list 10.91.1.209
+
+# Live properties of one section, on one device or a whole subnet
+python3 camera_config.py list 10.91.1.209 getVencConf
+python3 camera_config.py list 10.91.1.0/24 getRtspConf
+```
+
+Channelized endpoints (e.g. `getVencConf`) automatically iterate streams —
+`ch0` = main stream, `ch1` = sub stream — and stop at the first empty channel.
+
+### `set` — change individual properties
+
+```bash
+python3 camera_config.py set <target> <endpoint> key=value [key=value...]
+```
+
+```bash
+# Sub-stream bitrate on one camera
+python3 camera_config.py set 10.91.1.209 getVencConf bitrate=512 --channel 1
+
+# Enable RTSP auth on every camera in the subnet
+python3 camera_config.py set 10.91.1.0/24 setRtspConf auth=1
+
+# Rename a device (shows in its web UI title)
+python3 camera_config.py set 10.91.1.203 getSysConfig dev_name=CAM-203
+
+# OSD title (arrays/objects via JSON values)
+python3 camera_config.py set 10.91.1.209 getOsdConf \
+    'title_list=[{"title":"WAREHOUSE","title_pos_x":556,"title_pos_y":546,"show_title":1}]'
+```
+
+- Endpoint names accept either the `get*` or `set*` form (mapped automatically).
+- Values are parsed as JSON: `554`→int, `true`→bool, `"text"`/bare→string,
+  `[...]`/`{...}`→arrays/objects.
+- `--channel N` is required for per-stream endpoints.
+- Reads the live value first; sends nothing when already matching
+  (`unchanged`). `--force` sends unconditionally.
+
+### `dump` — snapshot full configuration
+
+```bash
 python3 camera_config.py dump 10.91.1.209 -o dumps/
 python3 camera_config.py dump 10.91.1.0/24 -o dumps/
+```
 
-# Apply a dump to one device or the whole subnet
+Writes `dumps/<ip>.json` containing `_meta` (login info, device type) and
+`sections` (every get-endpoint's full response; channelized endpoints stored
+as a list per channel). Sections that fail are recorded as `{"_error": ...}`
+and skipped on apply.
+
+### `apply` — replicate a dump to devices
+
+```bash
+# Clone .200's config onto every camera in the subnet
 python3 camera_config.py apply 10.91.1.0/24 -i dumps/10.91.1.200.json --skip-network
 ```
 
-## Inspecting and changing properties
+Per section prints: `unchanged` / `updated (n fields)` / `skipped` / error.
 
-```bash
-# List all get/set config endpoints
-python3 camera_config.py list 10.91.1.209
+- Only differing fields are POSTed (read–diff–write per section).
+- `--skip-network` excludes `getWiredNetwork`/`getWifiConfig` — strongly
+  recommended when cloning across devices (a source's static IP would move
+  every target to the same address).
+- `--force` disables diffing and writes full sections.
+- Secrets are never pushed (see Safety).
+- Apply is refused when the target's `deyType` differs from the dump's.
 
-# Show a section's live properties (channelized endpoints auto-iterate)
-python3 camera_config.py list 10.91.1.209 getVencConf
-python3 camera_config.py list 10.91.1.0/24 getRtspConf
+## Dump file format
 
-# Change individual properties on one device or a subnet
-python3 camera_config.py set 10.91.1.209 getVencConf bitrate=2048 --channel 0
-python3 camera_config.py set 10.91.1.0/24 setRtspConf auth=1
-python3 camera_config.py set 10.91.1.203 getSysConfig dev_name=CAM-203
+```json
+{
+ "_meta": {"ip": "10.91.1.200", "hiLogin": {"deviceID": "...", "deyType": "H2S02P100000", ...}},
+ "sections": {
+  "getVencConf": [ {"channel": 0, "pic_width": 1920, ...}, {"channel": 1, ...} ],
+  "getRtspConf": {"enable": 1, "rtsp_port": 554, ...},
+  ...
+ }
+}
 ```
 
-Values after `key=` are parsed as JSON, so numbers, booleans, quoted strings
-and arrays/objects all work. Endpoint names accept either the `get*` or `set*`
-form. `--channel` selects the stream for channelized endpoints (0=main,
-1=sub).
+Dumps are plain JSON — edit them freely before applying (e.g. delete sections
+you don't want pushed). **Do not commit dumps to git**: they can contain
+credentials (`.gitignore` already excludes `dumps/`).
 
-## Update-only-if-changed
+## Property reference
 
-Both `apply` and `set` first read the live configuration and send **only the
-fields that actually differ** — devices already matching the target state are
-not touched and report `unchanged`.
-
-- `deviceTime` is ignored in comparisons (it drifts); when time settings do
-  differ, a *fresh* timestamp is sent (the firmware requires `deviceTime`
-  and rejects stale ones).
-- `--force` on `apply`/`set` bypasses the diff check and writes everything.
-- `channel` is a selector, never treated as a difference.
-
-## Safety
-
-- Devices are detected by a successful `hiLogin`; foreign device types are
-  skipped, and `apply` additionally refuses `deyType` mismatches.
-- Passwords/secrets (`passwd`, `smtp_passw`, `AP_Passwd`, `gb_passwd`,
-  Wi-Fi `passwd`) are stripped from apply payloads.
-- `--skip-network` prevents pushing wired/Wi-Fi settings that could strand
-  devices on a different subnet.
-- Destructive endpoints (`reset`, `restart`, `fwUpgrade`, `diskFormat`,
-  `setPasswd`) are never invoked by this tool.
-
-## Useful reference values
-
-`getVencConf` / `setVencConf`:
+### Encoder (`getVencConf`, per `--channel`)
 
 | key | values |
 |---|---|
-| `encode_type` | 1=H.264, 3=MJPEG, 5=H.265, 6=H.265+ |
-| `encode_profile` | 0/1/2 (complexity; 2 only for H.264) |
-| `rc_mode` | 0=CBR, 1=VBR |
+| `encode_type` | `1`=H.264, `3`=MJPEG, `5`=H.265, `6`=H.265+ |
+| `encode_profile` | `0`/`1`/`2` complexity (`2` only valid for H.264) |
+| `rc_mode` | `0`=CBR, `1`=VBR |
+| `pic_width`/`pic_height` | must match an entry of `pixel_list` |
+| `frame_rate`, `gop`, `bitrate` | fps / GOP length / kbps |
 
-## Files
+### Frequently used endpoints
 
-- `camera_config.py` — the tool
-- `INTERFACES.md` — protocol investigation notes
-- `dumps/` — config snapshots (gitignored; may contain secrets)
+`getSysConfig` (dev_name, language, webPort) · `getDeviceTime` (NTP, timezone)
+· `getRtspConf` · `getAencConf` (audio) · `getOsdConf` (overlays)
+· `getImageAdjustment` (+Ex) · `getViMask` (privacy mask) · `getMotionDetConf`
+· `getMailConf` · `getGb28181` · `getWifiConfig` · `getRecSchedule`
+· `getStorageRule` · `getPeripheralConf` (RS485/PTZ) · `getRebootConf`
+
+Full inventory with descriptions: [INTERFACES.md](INTERFACES.md).
+
+## Behaviour notes
+
+- **Responses**: `code: 0` = success; some `set*` endpoints reply `code: 1`
+  yet still apply the change — the tool re-reads after writes where it
+  matters, and `list`/`set` verify state, not just return codes.
+- **`deviceTime`** drifts every second. It's ignored in diffs; when other
+  time settings differ, `apply` sends a *fresh* timestamp (the firmware
+  rejects stale ones with `code=201`).
+- **Unsupported sections**: endpoints returning `code -1/209/...` on a given
+  model (e.g. `getIVSConf`, `getSmartAudioConf` on this hardware) are dumped
+  for completeness and skipped on apply.
+- **Unknown hosts**: anything not answering `hiLogin` with `code=0` is
+  ignored — safe to point at mixed subnets.
+
+## Safety summary
+
+- Stripped from apply payloads: `passwd`, `password`, `AP_Passwd`,
+  `smtp_passw`, `gb_passwd`, plus all response metadata (`code`, `deviceID`,
+  `sign_tby`, …).
+- Never called: `reset`, `restart`, `fwUpgrade`, `diskFormat`, `setPasswd`,
+  `addUser`/`deleteUser` (user management is intentionally out of scope —
+  use `setPasswd`-aware tooling if needed).
+- Read endpoints used for diffing are exactly the same `get*` calls the
+  camera's own web UI makes.
+
+## Testing performed
+
+Verified against a live fleet of ten identical cameras
+(10.91.1.200–10.91.1.209, Hi3516CV610, firmware `22.010.30.6_MAIN_V44`):
+
+- **Discovery**: parallel `hiLogin` scan correctly identifies all 10 devices;
+  non-camera IPs ignored. `mac` returns the real `bc:07:18:*` addresses.
+- **Dump**: all 44 sections captured; `getVencConf` correctly enumerated 2
+  streams (main 2592×1944-capable, sub 704×576); unsupported endpoints
+  recorded without aborting.
+- **Apply round-trip**: a device's own dump re-applied → every section
+  reported `unchanged`, zero writes issued.
+- **Cross-device clone**: main-stream profile (1920×1080, 25 fps, GOP 50,
+  4096 kbps, MJPEG) pushed to 9 cameras; re-reads confirmed every field.
+- **`set` diff logic**: same-value `set` produced `unchanged` with no POST;
+  differing `set` transmitted only the changed keys.
+- **`set` live change**: sub-stream bitrate 1024→512→1024 on one device,
+  verified by re-reading.
+- **Time handling**: after `ntp_enable` was changed outside the tool, `apply`
+  correctly detected the single-field diff and `setTime` succeeded with a
+  fresh timestamp (stale dump timestamps correctly reproduce the firmware's
+  `code=201` rejection without the freshness fix).
+- **Stale-dump semantics**: applying an older dump correctly reverted the
+  codec to the dump's value — `apply` means "make it look like the dump",
+  diffs are computed from live state, not from assumptions.
+
+Not covered by testing: Wi-Fi/4G features (hardware present but untested),
+PTZ movement, firmware upgrade paths, SD playback/record scheduling beyond
+config read/write, and non-`H2S02P100000` hardware.
+
+## Troubleshooting
+
+| Symptom | Cause |
+|---|---|
+| `No compatible devices found` | wrong subnet/password, or non-hi3510-family cameras |
+| `login failed` / `code != 0` on hiLogin | password is not the md5-able admin password |
+| `set ... code=201 time error` | stale timestamp — update via `apply` (sends fresh time) or set `deviceTime=$(date +%s)` |
+| `set ... code=-1` / `209` | feature not supported by this hardware/firmware |
+| Device unreachable after apply | `getWiredNetwork` pushed without `--skip-network` |
 
 ## License
 
