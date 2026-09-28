@@ -1,7 +1,8 @@
-# CameraControl
+# hi3510-camctl
 
 CLI tool to scan, dump, apply and edit the configuration of hf*/hi3510-family
-IP cameras ("IPCamera", e.g. `deyType=H2S02P100000`) over their HTTP JSON API.
+IP cameras ("IPCamera", SoC **HiSilicon Hi3516CV610**, e.g.
+`deyType=H2S02P100000`) over their HTTP JSON API.
 
 See [INTERFACES.md](INTERFACES.md) for the full protocol documentation
 (HTTP `/action/*` API, ONVIF :8080, RTSP :554, legacy CGI, port 8000).
@@ -84,3 +85,7 @@ not touched and report `unchanged`.
 - `camera_config.py` — the tool
 - `INTERFACES.md` — protocol investigation notes
 - `dumps/` — config snapshots (gitignored; may contain secrets)
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).

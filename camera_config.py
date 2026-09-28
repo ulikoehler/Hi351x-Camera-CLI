@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """
 camera_config.py — Dump & apply configuration for hf*/hi3510-family IP cameras.
 

@@ -4,6 +4,11 @@ Tested device: `http://10.91.1.209/` (credentials: admin / 123456)
 Identified as an "IPCamera" firmware: `22.010.30.6_MAIN_V44`, platform `v9.6.1`
 (hf* / "hi3510" family — HiSilicon-based camera, ONVIF stack `hfonvif/1.0`).
 
+**SoC: HiSilicon Hi3516CV610** (confirmed via vendor database; not readable
+through any exposed network interface — neither `/action/*`, ONVIF
+`GetDeviceInformation`, RTSP headers nor web assets reveal the chip name.
+Entry-level 5 MP / H.265 SoC, matching the observed 2592×1944 max resolution.)
+
 ## Open ports
 
 | Port | Service | Notes |
