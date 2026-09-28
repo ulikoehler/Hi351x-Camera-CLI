@@ -1,4 +1,4 @@
-# hi3510-camera-cli
+# Hi351x-Camera-CLI
 
 Command-line tool to discover, inspect, dump, clone and edit the
 configuration of **hi3510-family IP cameras** (HiSilicon **Hi3516CV610** and
@@ -37,8 +37,8 @@ writes settings that actually differ.
 ## Install
 
 ```bash
-git clone https://github.com/<you>/hi3510-camera-cli.git
-cd hi3510-camera-cli
+git clone https://github.com/ulikoehler/Hi351x-Camera-CLI.git
+cd Hi351x-Camera-CLI
 python3 camera_config.py --help
 ```
 
