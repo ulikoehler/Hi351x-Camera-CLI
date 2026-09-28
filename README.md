@@ -115,6 +115,34 @@ python3 camera_config.py set 192.168.1.168 getOsdConf \
 - Reads the live value first; sends nothing when already matching
   (`unchanged`). `--force` sends unconditionally.
 
+### `name` — set the device name
+
+```bash
+python3 camera_config.py name 192.168.1.168 CAM-01
+python3 camera_config.py name 192.168.1.0/24 IPCamera   # whole subnet
+```
+
+Sets `dev_name` (shown in the web UI title and device lists). Idempotent:
+already-matching devices report `unchanged`.
+
+### `dhcp` / `static` — switch IP address mode
+
+```bash
+# Switch to DHCP (device re-leases; may move to a different IP — scan after)
+python3 camera_config.py dhcp 192.168.1.168
+
+# Switch to a fixed static IP
+python3 camera_config.py static 192.168.1.168 \
+    --ip 192.168.1.168 --gateway 192.168.1.1 --dns 192.168.1.1 --dns2 8.8.8.8
+```
+
+Network changes restart the camera's network stack — the connection drops
+mid-request. The tool tolerates this, waits, re-logs in and verifies the new
+state (retrying once if needed). If the device leased a different address and
+doesn't come back at the expected IP within ~30 s, run `scan`/`mac` on the
+subnet to find it. Keeping `--ip` equal to the current address is the safe
+option for `static`.
+
 ### `dump` — snapshot full configuration
 
 ```bash

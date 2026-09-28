@@ -314,6 +314,123 @@ def cmd_apply(args):
     return 0
 
 
+def cmd_name(args):
+    """Set the device name (dev_name / OSD title in the web UI)."""
+    cams = discover(args.target, args.password)
+    if not cams:
+        print("No compatible devices found.")
+        return 1
+    for cam in cams:
+        try:
+            cur = cam.get("getSysConfig")
+            if cur.get("dev_name") == args.name:
+                print(f"[{cam.ip}] name already {args.name!r} (unchanged)")
+                continue
+            r = cam.set("setSysConfig", {"dev_name": args.name})
+            ok = cam.get("getSysConfig").get("dev_name") == args.name
+            print(f"[{cam.ip}] dev_name -> {args.name!r}: "
+                  f"code={r.get('code')} verified={ok}")
+        except Exception as e:
+            print(f"[{cam.ip}] setSysConfig: FAILED {e}")
+    return 0
+
+
+def _network_apply(cam, payload, expected_ip):
+    """Send setWiredNetwork; the device may drop the connection while its
+    network service restarts — tolerate that, wait, re-login and verify."""
+    try:
+        cam.set("setWiredNetwork", payload)
+        sent = True
+    except Exception as e:
+        sent = f"connection dropped ({type(e).__name__})"
+    # network stack restarts; re-probe until reachable (DHCP renew can take a
+    # while, and a different address may be leased — caller should scan if we
+    # stay unreachable)
+    cur = None
+    for _ in range(10):
+        time.sleep(3)
+        try:
+            cam2 = Camera(expected_ip, cam_password_global, timeout=5)
+            cam2.login()
+            cur = cam2.get("getWiredNetwork")
+            break
+        except Exception:
+            continue
+    if cur is None:
+        return ("unreachable after 30s — device may have moved to a new "
+                "DHCP address; scan the subnet")
+    missing = {k: v for k, v in payload.items()
+               if k in ("IP", "DHCP") and cur.get(k) != v}
+    if not missing:
+        state = "applied" if sent is True else "applied after reconnect"
+        return f"{state}: DHCP={cur.get('DHCP')} IP={cur.get('IP')}"
+    # device may have bounced before committing — retry once
+    try:
+        cam2.set("setWiredNetwork", payload)
+    except Exception:
+        pass
+    for _ in range(5):
+        time.sleep(4)
+        try:
+            cam2 = Camera(expected_ip, cam_password_global, timeout=5)
+            cam2.login()
+            cur = cam2.get("getWiredNetwork")
+            if all(cur.get(k) == v for k, v in payload.items()
+                   if k in ("IP", "DHCP")):
+                return (f"applied on retry: DHCP={cur.get('DHCP')} "
+                        f"IP={cur.get('IP')}")
+        except Exception:
+            continue
+    return f"FAILED (still DHCP={cur.get('DHCP')} IP={cur.get('IP')})"
+
+
+cam_password_global = "123456"
+
+
+def _set_network(args, dhcp):
+    global cam_password_global
+    cam_password_global = args.password
+    if dhcp:
+        payload = {"DHCP": 1}
+    else:
+        if not args.ip:
+            print("static mode requires --ip (keeping the current IP "
+                  "is recommended: --ip <current>)")
+            return 1
+        payload = {"DHCP": 0, "IP": args.ip,
+                   "subnet_mask": args.subnet_mask,
+                   "gateway": args.gateway or "",
+                   "DNS": args.dns or "",
+                   "DNS2": args.dns2 or ""}
+    cams = discover(args.target, args.password)
+    if not cams:
+        print("No compatible devices found.")
+        return 1
+    for cam in cams:
+        try:
+            cur = cam.get("getWiredNetwork")
+            if dhcp and cur.get("DHCP") == 1:
+                print(f"[{cam.ip}] already DHCP (unchanged)")
+                continue
+            if not dhcp and cur.get("DHCP") == 0 and all(
+                    cur.get(k) == v for k, v in payload.items()):
+                print(f"[{cam.ip}] already static {payload['IP']} (unchanged)")
+                continue
+            expected_ip = payload.get("IP", cam.ip)
+            print(f"[{cam.ip}] {_network_apply(cam, payload, expected_ip)}")
+        except Exception as e:
+            print(f"[{cam.ip}] FAILED {e}")
+    return 0
+
+
+def cmd_dhcp(args):
+    return _set_network(args, dhcp=True)
+
+
+def cmd_static(args):
+    return _set_network(args, dhcp=False)
+
+
 def cmd_mac(args):
     cams = discover(args.target, args.password)
     for cam in cams:
@@ -435,7 +552,9 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name, fn in (("scan", cmd_scan), ("mac", cmd_mac), ("dump", cmd_dump),
-                     ("apply", cmd_apply), ("list", cmd_list), ("set", cmd_set)):
+                     ("apply", cmd_apply), ("list", cmd_list), ("set", cmd_set),
+                     ("name", cmd_name), ("dhcp", cmd_dhcp),
+                     ("static", cmd_static)):
         p = sub.add_parser(name)
         p.add_argument("target", help="IP, hostname, or CIDR (e.g. 10.91.1.0/24)")
         p.add_argument("--password", "-p", default="123456")
@@ -447,6 +566,16 @@ def main():
                            help="don't push wired/wifi network settings")
             p.add_argument("--force", action="store_true",
                            help="send full sections without diff-checking")
+        if name == "name":
+            p.add_argument("name", help="new device name (dev_name)")
+        if name == "static":
+            p.add_argument("--ip", required=True,
+                           help="static IP to assign (keep the current IP "
+                                "to avoid losing the device)")
+            p.add_argument("--gateway", default="")
+            p.add_argument("--subnet-mask", default="255.255.255.0")
+            p.add_argument("--dns", default="")
+            p.add_argument("--dns2", default="")
         if name == "list":
             p.add_argument("endpoint", nargs="?",
                            help="e.g. getVencConf (omit to list all endpoints)")
