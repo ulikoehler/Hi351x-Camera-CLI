@@ -54,7 +54,7 @@ send a username at all.
 ### `scan` — find compatible devices
 
 ```bash
-python3 camera_config.py scan 10.91.1.0/24 -p 123456
+python3 camera_config.py scan 192.168.1.0/24 -p 123456
 ```
 
 Probes every host in the target (single IP, hostname or CIDR), performs
@@ -64,12 +64,12 @@ Probes every host in the target (single IP, hostname or CIDR), performs
 ### `mac` — list MAC addresses and device IDs
 
 ```bash
-python3 camera_config.py mac 10.91.1.192/27
+python3 camera_config.py mac 192.168.1.0/24
 ```
 
 ```
-10.91.1.200      bc-07-18-03-31-ea  H0100011A120100011786
-10.91.1.201      bc-07-18-03-31-ed  H0100011A120100011789
+192.168.1.168      bc-07-18-03-31-ea  H0100011A120100011786
+192.168.1.169      bc-07-18-03-31-ed  H0100011A120100011789
 ...
 ```
 
@@ -77,11 +77,11 @@ python3 camera_config.py mac 10.91.1.192/27
 
 ```bash
 # All known get/set endpoint names
-python3 camera_config.py list 10.91.1.209
+python3 camera_config.py list 192.168.1.168
 
 # Live properties of one section, on one device or a whole subnet
-python3 camera_config.py list 10.91.1.209 getVencConf
-python3 camera_config.py list 10.91.1.0/24 getRtspConf
+python3 camera_config.py list 192.168.1.168 getVencConf
+python3 camera_config.py list 192.168.1.0/24 getRtspConf
 ```
 
 Channelized endpoints (e.g. `getVencConf`) automatically iterate streams —
@@ -95,16 +95,16 @@ python3 camera_config.py set <target> <endpoint> key=value [key=value...]
 
 ```bash
 # Sub-stream bitrate on one camera
-python3 camera_config.py set 10.91.1.209 getVencConf bitrate=512 --channel 1
+python3 camera_config.py set 192.168.1.168 getVencConf bitrate=512 --channel 1
 
 # Enable RTSP auth on every camera in the subnet
-python3 camera_config.py set 10.91.1.0/24 setRtspConf auth=1
+python3 camera_config.py set 192.168.1.0/24 setRtspConf auth=1
 
 # Rename a device (shows in its web UI title)
-python3 camera_config.py set 10.91.1.203 getSysConfig dev_name=CAM-203
+python3 camera_config.py set 192.168.1.168 getSysConfig dev_name=CAM-203
 
 # OSD title (arrays/objects via JSON values)
-python3 camera_config.py set 10.91.1.209 getOsdConf \
+python3 camera_config.py set 192.168.1.168 getOsdConf \
     'title_list=[{"title":"WAREHOUSE","title_pos_x":556,"title_pos_y":546,"show_title":1}]'
 ```
 
@@ -118,8 +118,8 @@ python3 camera_config.py set 10.91.1.209 getOsdConf \
 ### `dump` — snapshot full configuration
 
 ```bash
-python3 camera_config.py dump 10.91.1.209 -o dumps/
-python3 camera_config.py dump 10.91.1.0/24 -o dumps/
+python3 camera_config.py dump 192.168.1.168 -o dumps/
+python3 camera_config.py dump 192.168.1.0/24 -o dumps/
 ```
 
 Writes `dumps/<ip>.json` containing `_meta` (login info, device type) and
@@ -131,7 +131,7 @@ and skipped on apply.
 
 ```bash
 # Clone .200's config onto every camera in the subnet
-python3 camera_config.py apply 10.91.1.0/24 -i dumps/10.91.1.200.json --skip-network
+python3 camera_config.py apply 192.168.1.0/24 -i dumps/192.168.1.168.json --skip-network
 ```
 
 Per section prints: `unchanged` / `updated (n fields)` / `skipped` / error.
@@ -148,7 +148,7 @@ Per section prints: `unchanged` / `updated (n fields)` / `skipped` / error.
 
 ```json
 {
- "_meta": {"ip": "10.91.1.200", "hiLogin": {"deviceID": "...", "deyType": "H2S02P100000", ...}},
+ "_meta": {"ip": "192.168.1.168", "hiLogin": {"deviceID": "...", "deyType": "H2S02P100000", ...}},
  "sections": {
   "getVencConf": [ {"channel": 0, "pic_width": 1920, ...}, {"channel": 1, ...} ],
   "getRtspConf": {"enable": 1, "rtsp_port": 554, ...},
@@ -211,7 +211,7 @@ Full inventory with descriptions: [INTERFACES.md](INTERFACES.md).
 ## Testing performed
 
 Verified against a live fleet of ten identical cameras
-(10.91.1.200–10.91.1.209, Hi3516CV610, firmware `22.010.30.6_MAIN_V44`):
+(192.168.1.168–192.168.1.177, Hi3516CV610, firmware `22.010.30.6_MAIN_V44`):
 
 - **Discovery**: parallel `hiLogin` scan correctly identifies all 10 devices;
   non-camera IPs ignored. `mac` returns the real `bc:07:18:*` addresses.

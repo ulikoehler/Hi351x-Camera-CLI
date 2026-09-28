@@ -1,6 +1,6 @@
 # Camera Device Interfaces — Investigation Report
 
-Tested device: `http://10.91.1.209/` (credentials: admin / 123456)
+Tested device: `http://192.168.1.168/` (credentials: admin / 123456)
 Identified as an "IPCamera" firmware: `22.010.30.6_MAIN_V44`, platform `v9.6.1`
 (hf* / "hi3510" family — HiSilicon-based camera, ONVIF stack `hfonvif/1.0`).
 
@@ -27,7 +27,7 @@ Entry-level 5 MP / H.265 SoC, matching the observed 2592×1944 max resolution.)
 Response (success):
 ```json
 {"userRole":3,"failedAttempts":3,"code":0,"deviceID":"H0100011A120100011893",
- "device_mac":"bc-07-18-03-32-55","device_ip":"10.91.1.209","TempType":0,
+ "device_mac":"bc-07-18-03-32-55","device_ip":"192.168.1.168","TempType":0,
  "deyType":"H2S02P100000"}
 ```
 `code: 0` = success. Session is tracked server-side (no cookie returned; appears
